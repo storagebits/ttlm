@@ -10,11 +10,11 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--d", type=int, default=32); ap.add_argument("--layers", type=int, default=2)
 ap.add_argument("--heads", type=int, default=2); ap.add_argument("--mlp", type=int, default=64)
 ap.add_argument("--steps", type=int, default=4000); ap.add_argument("--lr", type=float, default=3e-3)
-ap.add_argument("--seed", type=int, default=0); ap.add_argument("--soft", action="store_true"); ap.add_argument("--init", default=None); ap.add_argument("--out", default="qmoth.pt")
+ap.add_argument("--seed", type=int, default=0); ap.add_argument("--soft", action="store_true"); ap.add_argument("--init", default=None); ap.add_argument("--tern-t", type=float, default=1.0); ap.add_argument("--out", default="qmoth.pt")
 a = ap.parse_args()
 torch.manual_seed(a.seed)
 import qmodel
-qmodel.EXACT = not a.soft
+qmodel.EXACT = not a.soft; qmodel.TERN_T = a.tern_t
 vocab = build_vocab(); stoi = {w: i for i, w in enumerate(vocab)}
 model = QMoth(len(vocab), a.d, a.layers, a.heads, a.mlp)
 if a.init: model.load_state_dict(torch.load(a.init)["model"])
@@ -33,6 +33,8 @@ valid = valid_answers()
 test = make_dataset(400, seed=99)
 ok = sum(" ".join(generate(model, q, stoi, vocab)) in valid[it] for it, q, _ in test)
 print(f"valid greedy answers: {ok}/{len(test)}")
+ex = model.export(); nz = sum(int((b[k] != 0).sum()) for b in ex["blocks"] for k in ["qkv", "o", "up", "down"]) + int((ex["emb"] != 0).sum())
+print(f"nonzero weights: {nz}")
 for q in ["hi moth", "who are you", "where is the cpu", "do you like the light", "what is money",
           "are you an ai", "what do you eat", "tell me a joke", "good night moth", "can you code"]:
     print(f"  you> {q:24s} moth> {' '.join(generate(model, q.split(), stoi, vocab))}")

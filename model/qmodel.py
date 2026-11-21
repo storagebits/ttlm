@@ -18,9 +18,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-CTX = 24
+CTX = 20
+TERN_T = 1.0         # ternary threshold multiplier: higher = more zeros (fewer adds, less memory)
 HMAX = 2047          # residual clamp (12 bits)
 QMAX = 31            # q, k range (int6) so q.k over 16 dims fits int16
+VMAX = 63            # v range: p (<= 60) +- v stays < 128 for the quarter-square table
 ZMAX = 31            # softmax table length - 1
 EXP = torch.tensor([round(64 * 2 ** (-z / 4)) for z in range(ZMAX + 1)], dtype=torch.float32)
 RCP = torch.tensor([round(16384 / (8 * w + 4)) for w in range(CTX * 64 // 8 + 1)], dtype=torch.float32)
@@ -30,24 +32,33 @@ RCP[:8] = RCP[8]     # W >= 64 always (the max position has weight 64)
 EXACT = True        # False: same architecture, no rounding (diagnostics only)
 
 
+def ste(exact, x):
+    """Forward value is exactly `exact`; gradient flows to x (straight-through)."""
+    return exact.detach() + (x - x.detach())
+
+
 def rnd(x):
-    return x + (torch.round(x) - x).detach() if EXACT else x
+    return ste(torch.round(x), x) if EXACT else x
 
 
 def flr(x):
-    return x + (torch.floor(x) - x).detach() if EXACT else x
+    return ste(torch.floor(x), x) if EXACT else x
 
 
 def tern(w):
     """Weights in {-1, 0, +1} (BitNet b1.58 rounding, scale dropped: it lives in the shifts)."""
-    s = w.abs().mean().clamp(min=1e-5)
-    q = (w / s).round().clamp(-1, 1)
-    return w / s + (q - w / s).detach()
+    z = w / (w.abs().mean().clamp(min=1e-5) * TERN_T)
+    return ste(z.round().clamp(-1, 1), z)
+
+
+def p2(ls):
+    """2^round(ls), exact in the forward pass."""
+    return ste(torch.pow(2.0, torch.round(ls)), torch.pow(2.0, ls)) if EXACT else torch.pow(2.0, ls)
 
 
 def shift(y, ls):
     """y * 2^round(ls), floored: an arithmetic shift on the Gigatron."""
-    return flr(y * torch.pow(2.0, rnd(ls)))
+    return flr(y * p2(ls))
 
 
 def lookup(table, idx_cont, soft):
@@ -56,7 +67,7 @@ def lookup(table, idx_cont, soft):
     if not EXACT:
         return s
     i = torch.floor(idx_cont).clamp(0, len(table) - 1).long().detach()
-    return s + (table.to(s.device)[i] - s).detach()
+    return ste(table.to(s.device)[i], s)
 
 
 def norm(h):
@@ -95,14 +106,14 @@ class Block(nn.Module):
         q, k, v = y.split(D, -1)
         q = shift(q, self.lq).clamp(-QMAX, QMAX)
         k = shift(k, self.lk).clamp(-QMAX, QMAX)
-        v = shift(v, self.lv).clamp(-127, 127)
+        v = shift(v, self.lv).clamp(-VMAX, VMAX)
         sh = lambda t: t.view(B, T, self.h, self.dh).transpose(1, 2)     # B h T dh
         q, k, v = sh(q), sh(k), sh(v)
         s = q @ k.transpose(-1, -2)                                         # exact ints, |s| <= 15376
         mask = torch.ones(T, T, dtype=torch.bool, device=a.device).tril()
         s = s.masked_fill(~mask, -1e9)
         m = s.max(-1, keepdim=True).values.detach()
-        zc = (m - s) * torch.pow(2.0, -rnd(self.latt))
+        zc = (m - s) * 1 / p2(self.latt)
         e = lookup(EXP, zc.clamp(max=ZMAX + 0.5), lambda z: 64 * torch.pow(2.0, -z / 4))
         e = e.masked_fill(~mask, 0)
         W = e.sum(-1, keepdim=True)
@@ -120,18 +131,19 @@ class Block(nn.Module):
 class QMoth(nn.Module):
     def __init__(self, V, d=32, L=2, h=2, m=64):
         super().__init__()
-        self.cfg = dict(V=V, d=d, L=L, h=h, m=m)
+        self.cfg = dict(V=V, d=d, L=L, h=h, m=m, tern_t=TERN_T)
         self.emb = nn.Parameter(torch.randn(V, d))
         self.lemb = nn.Parameter(torch.tensor(4.0))      # token embedding -> residual: +-2^lemb
-        self.pos = nn.Parameter(torch.randn(CTX, d) * 8)  # int8, residual units
+        self.pos = nn.Parameter(torch.randn(CTX, d))       # ternary, residual units +-2^lpos
+        self.lpos = nn.Parameter(torch.tensor(3.0))
         self.blocks = nn.ModuleList(Block(d, h, m) for _ in range(L))
         self.lout = nn.Parameter(torch.tensor(-7.0))     # logit temperature (training only)
 
     def logits_int(self, idx):
         E = tern(self.emb)
         T = idx.shape[1]
-        P = rnd(self.pos[:T]).clamp(-127, 127)
-        h = (E[idx] * torch.pow(2.0, rnd(self.lemb)) + P).clamp(-HMAX, HMAX)
+        P = tern(self.pos)[:T] * p2(self.lpos)
+        h = (E[idx] * p2(self.lemb) + P).clamp(-HMAX, HMAX)
         for b in self.blocks:
             h = b(h)
         return norm(h) @ E.t()                             # exact ints
@@ -143,10 +155,10 @@ class QMoth(nn.Module):
     @torch.no_grad()
     def export(self):
         """Integer tensors and shifts: everything the Gigatron needs."""
-        t = lambda w: (w / w.abs().mean().clamp(min=1e-5)).round().clamp(-1, 1).to(torch.int8)
+        t = lambda w: (w / (w.abs().mean().clamp(min=1e-5) * TERN_T)).round().clamp(-1, 1).to(torch.int8)
         r = lambda p: int(torch.round(p))
         out = {"cfg": self.cfg, "emb": t(self.emb), "lemb": r(self.lemb),
-               "pos": torch.round(self.pos).clamp(-127, 127).to(torch.int16), "blocks": []}
+               "pos": t(self.pos), "lpos": r(self.lpos), "blocks": []}
         for b in self.blocks:
             out["blocks"].append({
                 "qkv": t(b.qkv.w), "o": t(b.o.w), "up": t(b.up.w), "down": t(b.down.w),

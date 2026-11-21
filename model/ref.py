@@ -3,7 +3,7 @@
 This is the reference the Gigatron C code must match bit for bit. Python ints
 only (no torch in the hot path), written the way the C code will be written.
 """
-from qmodel import CTX, EXP, HMAX, QMAX, RCP, ZMAX
+from qmodel import CTX, EXP, HMAX, QMAX, RCP, VMAX, ZMAX
 
 EXP_T = [int(x) for x in EXP]
 RCP_T = [int(x) for x in RCP]
@@ -32,7 +32,8 @@ class Ref:
         c = ex["cfg"]
         self.d, self.h, self.dh = c["d"], c["h"], c["d"] // c["h"]
         L = lambda t: t.tolist()
-        self.E, self.P, self.lemb = L(ex["emb"]), L(ex["pos"]), ex["lemb"]
+        self.E, self.lemb = L(ex["emb"]), ex["lemb"]
+        self.P = [[shl(p, ex["lpos"]) for p in row] for row in L(ex["pos"])]
         self.B = [{k: (L(v) if hasattr(v, "tolist") else v) for k, v in b.items()} for b in ex["blocks"]]
         self.reset()
 
@@ -46,7 +47,7 @@ class Ref:
         y = matvec(b["qkv"], a)
         q = [clamp(shl(x, b["lq"]), -QMAX, QMAX) for x in y[:d]]
         k = [clamp(shl(x, b["lk"]), -QMAX, QMAX) for x in y[d:2 * d]]
-        v = [clamp(shl(x, b["lv"]), -127, 127) for x in y[2 * d:]]
+        v = [clamp(shl(x, b["lv"]), -VMAX, VMAX) for x in y[2 * d:]]
         self.K[li].append(k); self.V[li].append(v)
         out = []
         for hd in range(self.h):

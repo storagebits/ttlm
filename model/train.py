@@ -13,7 +13,7 @@ import torch.nn.functional as F
 
 from data import INTENTS, UNKNOWN_WORDS, build_vocab, make_dataset
 
-CTX = 24
+from qmodel import CTX
 
 
 def ternary(w):
@@ -82,7 +82,8 @@ def batchify(data, stoi):
     xs, ys = [], []
     for _, q, a in data:
         seq = [stoi["<q>"]] + encode(q, stoi) + [stoi["<a>"]] + encode(a, stoi) + [stoi["<e>"]]
-        seq = seq[:CTX + 1]
+        if len(seq) > CTX + 1:
+            continue          # never teach truncated answers
         n_q = len(q) + 2  # tokens up to and including <a>
         x = seq[:-1] + [0] * (CTX - len(seq) + 1)
         y = [-100] * (n_q - 1) + seq[n_q:] + [-100] * (CTX - len(seq) + 1)
