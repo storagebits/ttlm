@@ -22,7 +22,22 @@
   h1 { font-size: 40px; margin: 4px 0 0; color: var(--moth); letter-spacing: 4px; }
   header p { margin: 2px 0 0; color: var(--dim); }
   .machine { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .screen { position: relative; }
   canvas { display: block; width: 100%; aspect-ratio: 4 / 3; image-rendering: pixelated; background: #000; border-radius: 4px; }
+  #xray { position: absolute; inset: 0; height: 100%; background: transparent; cursor: crosshair; touch-action: none; }
+  .callout { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 10px; font-size: 14px; }
+  .callout b { color: var(--moth); font-weight: 600; }
+  #xraybtn { flex: none; padding: 6px 12px; font-size: 13px; }
+  #xraybtn.on { background: transparent; color: var(--moth); border: 1px solid var(--moth); }
+  #probe { min-height: 1.6em; font-size: 13px; color: var(--yellow); margin: 6px 2px 0; }
+  #legendbox { margin: 6px 2px 4px; }
+  #legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 2px 20px; font-size: 13px; }
+  #legend li { display: flex; align-items: center; gap: 8px; color: var(--text); }
+  #legend i { flex: none; width: 12px; height: 12px; border: 1px solid #3a3530; }
+  #legend span { flex: 1; }
+  #legend b { color: var(--dim); font-weight: 400; }
+  #legendbox p { font-size: 13px; color: var(--dim); margin: 6px 0 0; }
+  .shot { display: block; width: 100%; border-radius: 6px; margin: 12px 0; }
   .bar { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--dim); margin: 8px 2px 10px; }
   #status { color: var(--yellow); }
   form { display: flex; gap: 8px; }
@@ -55,7 +70,19 @@
   </header>
 
   <section class="machine">
-    <canvas id="screen" width="640" height="480" aria-label="Gigatron screen"></canvas>
+    <div class="callout">
+      <span>That colored noise is not a glitch. <b>It is the model.</b></span>
+      <button id="xraybtn" type="button">X-ray the screen</button>
+    </div>
+    <div class="screen">
+      <canvas id="screen" width="640" height="480" aria-label="Gigatron screen"></canvas>
+      <canvas id="xray" width="160" height="120" hidden aria-label="X-ray of the screen: what each pixel holds"></canvas>
+    </div>
+    <div id="probe"></div>
+    <div id="legendbox" hidden>
+      <ul id="legend"></ul>
+      <p>Not visible: the word embeddings and the program code, tucked into the 96 bytes at the end of each line that the video never draws.</p>
+    </div>
     <div class="bar"><span id="status">Booting…</span><span id="speed"></span></div>
     <form id="ask">
       <input id="q" type="text" maxlength="30" placeholder="Ask the moth (in English)…" autocomplete="off" autocapitalize="none">
@@ -72,7 +99,7 @@
       <button class="chip" type="button">good night moth</button>
     </div>
     <div class="opts">
-      <label><input id="turbo" type="checkbox"> Fast mode (faster than the real machine)</label>
+      <label><input id="realspeed" type="checkbox"> Real speed (as slow as a real Gigatron)</label>
       <button id="reset" type="button">Reboot</button>
     </div>
   </section>
@@ -81,15 +108,25 @@
   <p>A <a href="https://gigatron.io/">Gigatron TTL</a>: an 8-bit computer built from about
   30 ordinary logic chips (adders, registers, multiplexers) and no microprocessor. It runs
   at 6.25&nbsp;MHz with 32&nbsp;KB of RAM. Your browser is emulating it cycle by cycle,
-  running the same program as the real machine, at the same speed.</p>
+  running the same program as the real machine. By default it runs faster than the real
+  thing while the moth thinks; tick <i>Real speed</i> to wait like a real Gigatron owner.</p>
   <p>The program is a transformer, the same kind of model as the large chatbots, shrunk
-  to 22,000 weights. The Gigatron has no separate video memory, so the model lives on the
-  screen: <b>the colored noise at the top is the model</b>, its weights and its memory of the
-  conversation. The thin line just above the title holds the activations, and it flickers
-  while the moth thinks.</p>
+  to 22,000 weights.</p>
+
+  <h2>The noise is the model</h2>
+  <p>The Gigatron has no video memory. It draws its picture straight from RAM, and the
+  picture takes 19&nbsp;KB of its 32. A language model, even a tiny one, needs more room
+  than what is left. So the model moved into the picture.</p>
+  <p>The top of the screen is not decoration and not a bug: <b>you are looking at the
+  model's weights, byte by byte</b>, each byte shown as one pixel. The ragged block on the
+  right is the KV cache, the moth's memory of the conversation: it fills up as the moth
+  reads your question. The thin line just above the title holds the activations, and it
+  flickers while the moth thinks. Press <i>X-ray the screen</i> to see what every pixel holds,
+  live.</p>
+  <img class="shot" src="xray.png" alt="The Gigatron screen next to its X-ray: attention and MLP weights of both layers, KV cache, tables, vocabulary">
   <p>While it thinks, the screen shows only one line in four. The Gigatron draws the
   picture in software, and every line it skips is time handed back to the model,
-  about ten times more of it. Expect two seconds per word.</p>
+  about ten times more of it. On the real machine, expect two seconds per word.</p>
 
   <h2>The moth</h2>
   <p>On 9 September 1947, operators of the Harvard Mark II found a moth in a relay and taped it
@@ -129,6 +166,6 @@
     TTLM by <a href="https://github.com/storagebits">storagebits</a>
   </footer>
 </main>
-<script type="module" src="ttlm.js"></script>
+<script type="module" src="ttlm.js?v=3"></script>
 </body>
 </html>

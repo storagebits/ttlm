@@ -24,6 +24,22 @@ language model, then squeezed until it fits next to the screen in 32 KB and need
 
 You type a question. The Gigatron thinks for a while, then answers one word at a time.
 
+## The noise is the model
+
+The colored noise at the top of the screen is not a glitch. It is the model.
+
+The Gigatron has no video memory: it draws its picture straight from RAM, and the
+picture takes 19 KB of its 32. There was no room left for a language model, so the model
+moved into the picture. Every pixel at the top of the screen is one byte of TTLM:
+attention and MLP weights, the tables that replace softmax and multiplication, the
+vocabulary, and the KV cache, the moth's memory of the conversation, which you can watch
+fill up as it reads your question.
+
+<p align="center"><img src="docs/img/xray.png" width="900" alt="The Gigatron screen next to its X-ray: what each pixel holds"></p>
+
+The [browser version](https://storagebits.github.io/ttlm/) has an **X-ray** button that
+colors the screen this way, live, and flashes every byte the model writes.
+
 ## Meet the moth
 
 On 9 September 1947, operators of the Harvard Mark II found a moth stuck in a
@@ -116,15 +132,14 @@ computation then exists as:
 All three produce **bit-identical logits**. `make test` checks the C version
 running on a Gigatron simulator against the Python reference.
 
-### The model is on the screen
+### Trading pixels for compute
 
 <p align="center"><img src="docs/img/answer.png" width="400" alt="Screen layout"> <img src="docs/img/thinking.png" width="400" alt="Thinking"></p>
 
-The Gigatron has no separate video memory: the picture is drawn directly from
-RAM. With the screen taking 19 KB of the 32 KB, there is nowhere else to put
-the model. So the top 60 % of the screen *is* the model: weights, embeddings
-and KV cache, shown as colored pixels. The thin line just above the title holds
-the activations, and you can see it flicker while the moth thinks.
+The model fills the top 60 % of the screen (see [above](#the-noise-is-the-model)); what the
+video never shows, the 96 bytes past the end of each line, holds the word embeddings and
+the program code. The thin line just above the title holds the activations, and you can
+see it flicker while the moth thinks.
 
 While thinking, the Gigatron switches to a video mode that only draws one
 scanline in four (right picture above). Generating the picture is the
@@ -173,7 +188,9 @@ conversation with itself.
 ### In your browser
 
 **[storagebits.github.io/ttlm](https://storagebits.github.io/ttlm/)** boots an emulated
-Gigatron straight into TTLM. Type a question or pick one, and watch it think. The page lives
+Gigatron straight into TTLM. Type a question or pick one, and watch it think, or
+X-ray the screen to see the model at work. It runs faster than the real machine
+by default; tick *Real speed* for the authentic wait. The page lives
 in `web/` (built with `make web`); its simulator core is
 [Philip Thomas' Gigatron simulator](https://github.com/kervinck/gigatron-rom/tree/master/Contrib/PhilThomas) (BSD 2-clause).
 
@@ -224,7 +241,7 @@ gigatron/src/   the program
   row.s           the ternary dot product, in vCPU assembly
   ttlm.c          chat interface, tokenizer, demo mode
 web/            the browser version (GitHub Pages)
-tools/          gtshot (headless Gigatron), GT1 post-processing, icon
+tools/          gtshot (headless Gigatron), screen X-ray map, GT1 post-processing, icon
 ```
 
 ## Limitations

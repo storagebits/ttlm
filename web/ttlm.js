@@ -21,7 +21,8 @@ const vga = new Vga(canvas, cpu, {
 let gt1 = null;          // program bytes
 let stateAddr = -1;      // address of ttlm_state in the Gigatron's RAM
 let execCount = 0;
-let turbo = false;
+let turbo = true;        // faster than the real machine while the moth works
+let cycles = 0;          // Gigatron clock cycles since boot
 let frames = 0;
 let lastOut = 0;
 
@@ -59,6 +60,7 @@ function step() {
   }
   cpu.tick();
   vga.tick();
+  cycles++;
   const out = cpu.out;
   if ((lastOut & ~out) & VSYNC) { frames++; onFrame(); }
   lastOut = out;
@@ -69,7 +71,15 @@ let typing = [];         // pending key codes
 let keyPhase = 0;
 let queued = null;       // question waiting for the moth to be ready
 
+// time of one answer, in Gigatron time and in browser time
+let lastState = 0, t0 = 0, w0 = 0, lastAnswer = null;
 function onFrame() {
+  const s = mothState();
+  if (s !== lastState) {
+    if (s === 2) { t0 = cycles; w0 = performance.now(); }
+    if (s === 1 && lastState === 2) lastAnswer = { gt: (cycles - t0) / HZ, wall: (performance.now() - w0) / 1000 };
+    lastState = s;
+  }
   if (typing.length) {
     if (keyPhase === 0) cpu.inReg = typing[0];
     if (keyPhase === 3) cpu.inReg = 0xff;
@@ -99,7 +109,8 @@ function loop(now) {
   const dt = Math.min(now - last, 100);
   last = now;
   const budget = performance.now() + 14;               // ms of CPU per animation frame
-  const target = turbo ? Infinity : Math.round(HZ * dt / 1000);
+  const busy = typing.length > 0 || queued !== null || mothState() !== 1;
+  const target = turbo && busy ? Infinity : Math.round(HZ * dt / 1000);
   let done = 0;
   while (done < target) {
     for (let i = 0; i < 2000; i++) step();
@@ -107,6 +118,7 @@ function loop(now) {
     if (performance.now() > budget) break;
   }
   simTime += done / HZ; wallTime += dt / 1000;
+  if (xrayOn) drawXray();
   requestAnimationFrame(loop);
 }
 
@@ -114,14 +126,17 @@ let shownSpeed = '';
 function updateStatus() {
   const s = mothState();
   let text = 'Booting…';
-  if (s === 1) text = queued ? 'Typing…' : 'The moth is listening. Ask it something.';
+  if (s === 1) text = queued ? 'Typing…' : lastAnswer
+    ? `Your turn. That answer took ${Math.round(lastAnswer.gt)} s on a real Gigatron` +
+      (turbo && lastAnswer.wall < lastAnswer.gt * 0.8 ? ` (${Math.round(lastAnswer.wall)} s here).` : '.')
+    : 'The moth is listening. Ask it something.';
   if (s === 2) text = queued ? 'The moth is busy. Your question will be typed when it is done.'
                              : 'The moth is thinking…';
   if (typing.length) text = 'Typing…';
   status.textContent = text;
   if (wallTime > 0.5) {
     const x = simTime / wallTime;
-    const sp = `${x >= 0.95 && x <= 1.05 ? '1.0' : x.toFixed(1)}× real speed`;
+    const sp = x >= 0.95 && x <= 1.05 ? 'real speed' : `${x.toFixed(1)}× real speed`;
     if (sp !== shownSpeed) { speedLabel.textContent = sp; shownSpeed = sp; }
     simTime = wallTime = 0;
   }
@@ -135,21 +150,83 @@ $('ask').addEventListener('submit', (e) => {
   $('q').value = '';
 });
 for (const b of document.querySelectorAll('.chip')) b.addEventListener('click', () => ask(b.textContent));
-$('turbo').addEventListener('change', (e) => { turbo = e.target.checked; });
+$('realspeed').addEventListener('change', (e) => { turbo = !e.target.checked; });
 $('reset').addEventListener('click', () => {
-  cpu.reset(); execCount = 0; typing = []; queued = null;
+  cpu.reset(); execCount = 0; typing = []; queued = null; lastAnswer = null; lastState = 0;
 });
+
+// ---- X-ray: what each pixel of the brain holds, drawn live from the RAM ----
+const xray = $('xray');
+const xctx = xray.getContext('2d');
+const ximg = xctx.createImageData(160, 120);
+const probe = $('probe');
+let brain = null, xrayOn = false, prev = null, heat = null, kindRGB = [];
+
+function setupXray(map) {
+  brain = map;
+  kindRGB = map.kinds.map((k) => [1, 3, 5].map((i) => parseInt(k.color.slice(i, i + 2), 16)));
+  prev = new Uint8Array(map.rows * 160);
+  heat = new Float32Array(map.rows * 160);
+  const legend = $('legend');
+  for (const k of map.kinds) {
+    if (!k.bytes) continue;
+    const li = document.createElement('li');
+    li.innerHTML = `<i style="background:${k.color}"></i><span>${k.label}</span><b>${k.bytes.toLocaleString('en')} B</b>`;
+    legend.appendChild(li);
+  }
+}
+
+function drawXray() {
+  const d = ximg.data, n = brain.rows * 160;
+  for (let i = 0; i < n; i++) {
+    const v = cpu.ram[0x800 + ((i / 160) | 0) * 256 + (i % 160)];
+    if (v !== prev[i]) { heat[i] = 1; prev[i] = v; }
+    const kind = brain.kind.charCodeAt(i) - 48, c = kindRGB[kind];
+    const lum = ((v & 3) + ((v >> 2) & 3) + ((v >> 4) & 3)) / 9;
+    const k = brain.kinds[kind].key === 'free' ? 1 : 0.35 + 0.65 * lum;
+    const h = heat[i];
+    for (let j = 0; j < 3; j++) d[4 * i + j] = c[j] * k * (1 - h) + 255 * h;
+    d[4 * i + 3] = 255;
+    heat[i] = h * 0.8;
+  }
+  xctx.putImageData(ximg, 0, 0);
+}
+
+function setXray(on) {
+  xrayOn = on && brain !== null;
+  xray.hidden = !xrayOn;
+  $('legendbox').hidden = !xrayOn;
+  $('xraybtn').textContent = xrayOn ? 'Back to the screen' : 'X-ray the screen';
+  $('xraybtn').classList.toggle('on', xrayOn);
+  probe.textContent = xrayOn ? 'Point at a pixel to see what it holds. White flashes: memory being written.' : '';
+  if (xrayOn) { prev.fill(0); heat.fill(0); drawXray(); }
+}
+$('xraybtn').addEventListener('click', () => setXray(!xrayOn));
+
+function probeAt(e) {
+  const r = xray.getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / r.width * 160);
+  const y = Math.floor((e.clientY - r.top) / r.height * 120);
+  if (x < 0 || x >= 160 || y < 0 || y >= 120) return;
+  if (y >= brain.rows) { probe.textContent = `line ${y}: the chat, drawn by the program`; return; }
+  const i = y * 160 + x, addr = 0x800 + y * 256 + x;
+  const what = brain.labels[brain.label[i]];
+  probe.textContent = `line ${y}, address ${addr.toString(16).padStart(4, '0')}: ${what}`;
+}
+xray.addEventListener('pointermove', probeAt);
+xray.addEventListener('pointerdown', probeAt);
 
 async function boot() {
   const [rom, prog, info] = await Promise.all([
     fetch('rom/v4.rom').then((r) => r.arrayBuffer()),
-    fetch('ttlm.gt1').then((r) => r.arrayBuffer()),
-    fetch('ttlm.json').then((r) => r.json()),
+    fetch('ttlm.gt1', { cache: 'no-cache' }).then((r) => r.arrayBuffer()),
+    fetch('ttlm.json', { cache: 'no-cache' }).then((r) => r.json()),
   ]);
   const dv = new DataView(rom);
   for (let i = 0; i < cpu.rom.length; i++) cpu.rom[i] = dv.getUint16(2 * i);
   gt1 = new Uint8Array(prog);
   stateAddr = info.state;
+  if (info.brain) setupXray(info.brain);
   for (let i = 0; i < cpu.ram.length; i++) cpu.ram[i] = (Math.random() * 256) | 0;
   cpu.reset();
   requestAnimationFrame(loop);
