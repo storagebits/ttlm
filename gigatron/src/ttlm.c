@@ -41,6 +41,9 @@ static char *demo[] = {
 };
 #define NDEMO (sizeof(demo) / sizeof(demo[0]))
 
+/* Read by the web page (web/ttlm.js): 1 = waiting for a question, 2 = busy. */
+unsigned char ttlm_state;
+
 static char line[40];
 static unsigned char q[MAXQ + 3];
 
@@ -115,6 +118,7 @@ static int readline(void)
   unsigned char f = frameCount;
   console_state.fgbg = C_YOU;
   console_print("> ", 2);
+  ttlm_state = 1;
   for (;;) {
     c = console_getkey();
     if (c < 0 || c == 255) {
@@ -130,12 +134,14 @@ static int readline(void)
   }
   line[n] = 0;
   console_print("\n", 1);
+  ttlm_state = 2;
   return n;
 }
 
 static void type_demo(const char *s)
 {
   unsigned char f;
+  ttlm_state = 2;
   console_state.fgbg = C_YOU;          /* readline already printed the prompt */
   strcpy(line, s);
   while (*s) {

@@ -13,3 +13,4 @@ media/
 media/shots/*.ppm
 model/*.pt
 third_party/
+gigatron/*.frags

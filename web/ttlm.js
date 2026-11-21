@@ -1,0 +1,157 @@
+// TTLM in the browser: a Gigatron (Philip Thomas' simulator core) that boots
+// straight into the moth, with a text box that types into the machine.
+import { Gigatron } from './emu/gigatron.js';
+import { Vga } from './emu/vga.js';
+
+const HZ = 6250000;
+const VSYNC = 0x80;
+const SYS_EXEC = 0x00ad, SYSFN = 0x22, VPC = 0x16, VLR = 0x1a;
+
+const $ = (id) => document.getElementById(id);
+const canvas = $('screen');
+const status = $('status');
+const speedLabel = $('speed');
+
+const cpu = new Gigatron({ hz: HZ, romAddressWidth: 16, ramAddressWidth: 15 });
+const vga = new Vga(canvas, cpu, {
+  horizontal: { frontPorch: 16, pulse: 96, backPorch: 48, visible: 640 },
+  vertical: { frontPorch: 6, pulse: 8, backPorch: 27, visible: 480 },
+});
+
+let gt1 = null;          // program bytes
+let stateAddr = -1;      // address of ttlm_state in the Gigatron's RAM
+let execCount = 0;
+let turbo = false;
+let frames = 0;
+let lastOut = 0;
+
+// ---- loading: the second SYS_Exec (the main menu) runs TTLM instead ----
+function loadGt1(bytes) {
+  let i = 0, addr;
+  do {
+    addr = (bytes[i] << 8) | bytes[i + 1];
+    let n = bytes[i + 2] || 256;
+    i += 3;
+    while (n--) {
+      cpu.ram[addr & 0x7fff] = bytes[i++];
+      addr = (addr & 0xff00) | ((addr + 1) & 0xff);
+    }
+  } while (bytes[i] !== 0);
+  return (bytes[i + 1] << 8) | bytes[i + 2];
+}
+
+function doke(a, v) { cpu.ram[a] = v & 255; cpu.ram[a + 1] = (v >> 8) & 255; }
+function deek(a) { return cpu.ram[a] | (cpu.ram[a + 1] << 8); }
+
+function step() {
+  if (cpu.nextpc === 0x3b4 && deek(SYSFN) === SYS_EXEC) {
+    const vpc = deek(VPC);
+    if (!(execCount === 0 && vpc >= 0x1f0 && vpc < 0x1f8) && ++execCount === 1 && gt1) {
+      const start = loadGt1(gt1);
+      doke(VPC, (start & 0xff00) | ((start - 2) & 0xff));
+      doke(VLR, start);
+      cpu.ac = 0xf8;                       // the instruction replaced: LD $f8
+      cpu.pc = 0x3cb;                      // REENTER
+      cpu.nextpc = 0x3cc;
+      vga.tick();
+      return;
+    }
+  }
+  cpu.tick();
+  vga.tick();
+  const out = cpu.out;
+  if ((lastOut & ~out) & VSYNC) { frames++; onFrame(); }
+  lastOut = out;
+}
+
+// ---- typing into the machine: each key held 3 frames, released 3 frames ----
+let typing = [];         // pending key codes
+let keyPhase = 0;
+let queued = null;       // question waiting for the moth to be ready
+
+function onFrame() {
+  if (typing.length) {
+    if (keyPhase === 0) cpu.inReg = typing[0];
+    if (keyPhase === 3) cpu.inReg = 0xff;
+    if (++keyPhase === 6) { typing.shift(); keyPhase = 0; }
+    return;
+  }
+  if (queued !== null && mothState() === 1) {
+    typing = [...queued].map((c) => c.charCodeAt(0)).concat([10]);
+    queued = null;
+    keyPhase = 0;
+  }
+}
+
+function mothState() { return stateAddr >= 0 ? cpu.ram[stateAddr] : 0; }
+
+function ask(text) {
+  const q = text.toLowerCase().replace(/[^a-z0-9 ?.,!']/g, '').replace(/\s+/g, ' ').trim().slice(0, 30);
+  if (!q || typing.length) return;
+  queued = q;
+  updateStatus();
+}
+
+// ---- run loop: real time (1x) or as fast as this computer allows ----
+let simTime = 0, wallTime = 0;
+let last = performance.now();
+function loop(now) {
+  const dt = Math.min(now - last, 100);
+  last = now;
+  const budget = performance.now() + 14;               // ms of CPU per animation frame
+  const target = turbo ? Infinity : Math.round(HZ * dt / 1000);
+  let done = 0;
+  while (done < target) {
+    for (let i = 0; i < 2000; i++) step();
+    done += 2000;
+    if (performance.now() > budget) break;
+  }
+  simTime += done / HZ; wallTime += dt / 1000;
+  requestAnimationFrame(loop);
+}
+
+let shownSpeed = '';
+function updateStatus() {
+  const s = mothState();
+  let text = 'Booting…';
+  if (s === 1) text = queued ? 'Typing…' : 'The moth is listening. Ask it something.';
+  if (s === 2) text = queued ? 'The moth is busy. Your question will be typed when it is done.'
+                             : 'The moth is thinking…';
+  if (typing.length) text = 'Typing…';
+  status.textContent = text;
+  if (wallTime > 0.5) {
+    const x = simTime / wallTime;
+    const sp = `${x >= 0.95 && x <= 1.05 ? '1.0' : x.toFixed(1)}× real speed`;
+    if (sp !== shownSpeed) { speedLabel.textContent = sp; shownSpeed = sp; }
+    simTime = wallTime = 0;
+  }
+}
+setInterval(updateStatus, 500);
+
+// ---- UI ----
+$('ask').addEventListener('submit', (e) => {
+  e.preventDefault();
+  ask($('q').value);
+  $('q').value = '';
+});
+for (const b of document.querySelectorAll('.chip')) b.addEventListener('click', () => ask(b.textContent));
+$('turbo').addEventListener('change', (e) => { turbo = e.target.checked; });
+$('reset').addEventListener('click', () => {
+  cpu.reset(); execCount = 0; typing = []; queued = null;
+});
+
+async function boot() {
+  const [rom, prog, info] = await Promise.all([
+    fetch('rom/v4.rom').then((r) => r.arrayBuffer()),
+    fetch('ttlm.gt1').then((r) => r.arrayBuffer()),
+    fetch('ttlm.json').then((r) => r.json()),
+  ]);
+  const dv = new DataView(rom);
+  for (let i = 0; i < cpu.rom.length; i++) cpu.rom[i] = dv.getUint16(2 * i);
+  gt1 = new Uint8Array(prog);
+  stateAddr = info.state;
+  for (let i = 0; i < cpu.ram.length; i++) cpu.ram[i] = (Math.random() * 256) | 0;
+  cpu.reset();
+  requestAnimationFrame(loop);
+}
+boot().catch((e) => { status.textContent = 'Could not start the Gigatron: ' + e.message; });

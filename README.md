@@ -8,6 +8,9 @@ A tiny transformer that runs on a computer with no CPU.</p>
 <p align="center"><img src="docs/img/ttlm-demo.gif" width="640" alt="Chatting with the moth on a Gigatron"><br>
 <sub>A full conversation, sped up 4×. The top of the screen is the model itself.</sub></p>
 
+<p align="center"><b><a href="https://storagebits.github.io/ttlm/">▶ Talk to the moth in your browser</a></b><br>
+<sub>A cycle-accurate Gigatron, emulated in the page, running the same program at the same speed.</sub></p>
+
 ---
 
 The [Gigatron TTL](https://gigatron.io/) is an 8-bit computer built from about
@@ -167,6 +170,13 @@ Type with a PS/2 keyboard (Pluggy adapter), or send keystrokes from your
 computer through BabelFish. If nobody types for 30 seconds, the moth starts a
 conversation with itself.
 
+### In your browser
+
+**[storagebits.github.io/ttlm](https://storagebits.github.io/ttlm/)** boots an emulated
+Gigatron straight into TTLM. Type a question or pick one, and watch it think. The page lives
+in `web/` (built with `make web`); its simulator core is
+[Philip Thomas' Gigatron simulator](https://github.com/kervinck/gigatron-rom/tree/master/Contrib/PhilThomas) (BSD 2-clause).
+
 ### In an emulator
 
 Any Gigatron emulator that loads `.gt1` files will do. The repository also
@@ -213,6 +223,7 @@ gigatron/src/   the program
   engine.c        inference: embeddings, norms, attention, MLP, output head
   row.s           the ternary dot product, in vCPU assembly
   ttlm.c          chat interface, tokenizer, demo mode
+web/            the browser version (GitHub Pages)
 tools/          gtshot (headless Gigatron), GT1 post-processing, icon
 ```
 
@@ -230,6 +241,7 @@ tools/          gtshot (headless Gigatron), GT1 post-processing, icon
   `tools/gtshot.c` is built on the reference emulator from
   [gigatron-rom](https://github.com/kervinck/gigatron-rom) (BSD 2-clause).
 - [glcc](https://github.com/lb3361/gigatron-lcc), the Gigatron C compiler, by lb3361.
+- The browser simulator by Philip Thomas (BSD 2-clause), in `web/emu`.
 - [GuppyLM](https://github.com/arman-bd/guppylm) for the idea of a tiny model with a tiny world.
 - [BitNet b1.58](https://arxiv.org/abs/2402.17764) for ternary weights.
 - The moth, Harvard Mark II, 1947.
