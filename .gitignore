@@ -1,7 +1,10 @@
 __pycache__/
 .venv/
 *.pt
-gigatron/*.gt1
+gigatron/build_*.gt1
+gigatron/test_sim.gt1
+gigatron/bench_sim.gt1
+gigatron/measure.gt1
 gigatron/*.prof
 gigatron/*.txt
 gtshot

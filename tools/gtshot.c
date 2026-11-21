@@ -1,15 +1,23 @@
 /* gtshot: headless Gigatron for TTLM tests and screenshots.
  *
- * CPU core: Docs/gtemu.c from kervinck/gigatron-rom (BSD 2-clause, Marcel van Kervinck).
+ * CPU core: Docs/gtemu.c from kervinck/gigatron-rom.
+ *   Copyright (c) 2017,2018,2019, Marcel van Kervinck. All rights reserved.
+ *   BSD 2-Clause License: redistribution and use in source and binary forms, with or
+ *   without modification, are permitted provided that source redistributions retain
+ *   this copyright notice, this list of conditions and the disclaimer of the original
+ *   (THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND), and binary
+ *   redistributions reproduce them in the documentation.
  * GT1 loading: same trick as gtsim (lb3361/gigatron-lcc): the second SYS_Exec
  * (the main menu) is replaced by the GT1 file.
  *
  * Usage: gtshot ROM GT1 [cmd ...]
  *   w<sec>    run for <sec> emulated seconds
  *   t<text>   type text through the serial/controller input ('|' = Enter)
- *   s<file>   write the screen (videoTable view) as a 640x480 PPM
- *   u<regex>  (not implemented) -- keep the tool small
- *   m         print the vCPU free-running time ratio so far
+ *   s<file>   write the screen memory (videoTable view) as a 640x480 PPM
+ *   v<file>   write what a VGA monitor shows (video modes, scanlines) as a 640x480 PPM
+ *   R<file>   raw VGA capture (200 cycles x 480 lines) for calibration
+ *   c<n>:<prefix>  from now on, save one VGA frame every n frames as <prefix>00000.ppm, ...
+ *             (c0 stops)
  */
 #include <stdint.h>
 #include <stdio.h>
@@ -81,6 +89,8 @@ static int loadGt1(const char *f)
 }
 
 static CpuState S;
+static uint8_t vga[525][200];   /* raw VGA: one byte per CPU cycle (4 dots), per scanline */
+static int vgaX, vgaY;
 static long long t;
 static long frames;
 static const char *gt1;
@@ -98,11 +108,32 @@ static void cycle(void)
     }
   }
   CpuState T = cpuCycle(S);
-  if ((T.OUT & 0x80) < (S.OUT & 0x80)) frames++;      /* falling vSync */
+  if (vgaY >= 0 && vgaY < 525 && vgaX < 200) vga[vgaY][vgaX] = S.OUT;
+  vgaX++;
+  if ((T.OUT & 0x80) < (S.OUT & 0x80)) { frames++; vgaY = -36; }   /* falling vSync */
+  if ((T.OUT & 0x40) > (S.OUT & 0x40)) { vgaX = 0; vgaY++; }       /* rising hSync */
   S = T; t++;
 }
 
-static void run_frames(long n) { long f = frames + n; while (frames < f) cycle(); }
+static int cap_every;                /* capture one VGA frame every N frames (0 = off) */
+static char cap_prefix[200];
+static int cap_n;
+static void vsave(const char *f);
+static void run_frames(long n)
+{
+  long f = frames + n, last = frames;
+  while (frames < f) {
+    cycle();
+    if (frames != last) {
+      last = frames;
+      if (cap_every && frames % cap_every == 0) {
+        char name[256];
+        snprintf(name, sizeof name, "%s%05d.ppm", cap_prefix, cap_n++);
+        vsave(name);
+      }
+    }
+  }
+}
 
 static void type(const char *s)
 {
@@ -129,6 +160,29 @@ static void shot(const char *f)
   fclose(fp);
 }
 
+/* What a VGA monitor shows: 640x480 from the captured signal (cropped). */
+#define VX0 12
+#define VY0 0
+static void vshot(const char *f, int raw);
+static void vsave(const char *f) { vshot(f, 2); }
+static void vshot(const char *f, int raw)
+{
+  if (raw != 2) run_frames(1);                        /* a complete frame */
+  else raw = 0;
+  FILE *fp = fopen(f, "wb"); int x, y, dx;
+  int W = raw ? 200 : 160, H = raw ? 525 : 480;
+  fprintf(fp, "P6 %d 480 255\n", W * 4);
+  for (y = 0; y < 480; y++)
+    for (x = 0; x < W; x++) {
+      uint8_t c = raw ? vga[y][x] : vga[y + VY0][x + VX0];
+      if (!raw && (c & 0xc0) != 0xc0) c = 0;          /* blanking */
+      uint8_t rgb[3] = { (c & 3) * 85, ((c >> 2) & 3) * 85, ((c >> 4) & 3) * 85 };
+      for (dx = 0; dx < 4; dx++) fwrite(rgb, 1, 3, fp);
+    }
+  (void)H;
+  fclose(fp);
+}
+
 int main(int argc, char **argv)
 {
   if (argc < 3) { fprintf(stderr, "usage: gtshot ROM GT1 [w<sec>|t<text>|s<file>] ...\n"); return 1; }
@@ -144,6 +198,9 @@ int main(int argc, char **argv)
     if (a[0] == 'w') run_frames((long)(atof(a + 1) * 59.98));
     else if (a[0] == 't') type(a + 1);
     else if (a[0] == 's') { shot(a + 1); fprintf(stderr, "[%.1fs] %s\n", t / 6.25e6, a + 1); }
+    else if (a[0] == 'v') { vshot(a + 1, 0); fprintf(stderr, "[%.1fs] %s\n", t / 6.25e6, a + 1); }
+    else if (a[0] == 'R') vshot(a + 1, 1);
+    else if (a[0] == 'c') { cap_every = atoi(a + 1); const char *p = strchr(a, ':'); if (p) snprintf(cap_prefix, sizeof cap_prefix, "%s", p + 1); }
   }
   return 0;
 }

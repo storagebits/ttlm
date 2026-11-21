@@ -5,13 +5,20 @@ ROM = third_party/gigatron-lcc/gigatron/roms/v4.rom
 PY = .venv/bin/python
 SRC = gigatron/src
 
-all: gigatron/ttlm.gt1
+all: gigatron/ttlm.gt1 gigatron/ttlm_v3.gt1
 
 $(SRC)/weights.c: model/moth.pt model/export_c.py
 	cd model && ../$(PY) export_c.py moth.pt ../$(SRC)/weights.c
 
 gigatron/ttlm.gt1: $(SRC)/weights.c $(SRC)/engine.c $(SRC)/row.s $(SRC)/ttlm.c
-	cd $(SRC) && ../../$(GLCC) -rom=v4 -map=32k -O engine.c row.s weights.c ttlm.c -o ../ttlm.gt1
+	cd $(SRC) && ../../$(GLCC) -rom=v4 -map=32k -O engine.c row.s weights.c ttlm.c -o ../build_v4.gt1
+	$(PY) tools/gt1_fill.py gigatron/build_v4.gt1 $@
+
+# same program for ROMv3 (experimental glcc target, see tools/glcc_add_v3.py)
+gigatron/ttlm_v3.gt1: $(SRC)/weights.c $(SRC)/engine.c $(SRC)/row.s $(SRC)/ttlm.c
+	$(PY) tools/glcc_add_v3.py
+	cd $(SRC) && ../../$(GLCC) -rom=v3 -map=32k -O engine.c row.s weights.c ttlm.c -o ../build_v3.gt1
+	$(PY) tools/gt1_fill.py gigatron/build_v3.gt1 $@
 
 # bit-exactness: C on the Gigatron simulator vs the Python integer reference
 test: $(SRC)/weights.c

@@ -56,7 +56,7 @@ static void say(const char *w)
   int n = strlen(w);
   char punct = (n == 1 && (w[0] == '.' || w[0] == ',' || w[0] == '?' || w[0] == '!'));
   if (!punct) {
-    if (console_state.cx + n + 1 > COLS) console_print("\n  ", 3);
+    if (console_state.cx + n + 2 > COLS) console_print("\n  ", 3);
     else if (console_state.cx > 2) console_print(" ", 1);
   }
   console_print(w, n);
@@ -136,8 +136,7 @@ static int readline(void)
 static void type_demo(const char *s)
 {
   unsigned char f;
-  console_state.fgbg = C_YOU;
-  console_print("> ", 2);
+  console_state.fgbg = C_YOU;          /* readline already printed the prompt */
   strcpy(line, s);
   while (*s) {
     console_print(s++, 1);
