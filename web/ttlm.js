@@ -196,9 +196,9 @@ function setXray(on) {
   xrayOn = on && brain !== null;
   xray.hidden = !xrayOn;
   $('legendbox').hidden = !xrayOn;
-  $('xraybtn').textContent = xrayOn ? 'Back to the screen' : 'X-ray the screen';
+  $('xraybtn').textContent = xrayOn ? 'Simple view' : 'Advanced view';
   $('xraybtn').classList.toggle('on', xrayOn);
-  probe.textContent = xrayOn ? 'Point at a pixel to see what it holds. White flashes: memory being written.' : '';
+  probe.textContent = xrayOn ? 'X-ray of the top of the screen: what each byte holds. Point at a pixel for details. White flashes: memory being written.' : '';
   if (xrayOn) { prev.fill(0); heat.fill(0); drawXray(); }
 }
 $('xraybtn').addEventListener('click', () => setXray(!xrayOn));

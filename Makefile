@@ -28,9 +28,8 @@ test: $(SRC)/weights.c
 	diff <(sed 's/: */:/' $(SRC)/expected.txt | tr -s ' ') <(sed 's/: */:/' gigatron/got.txt | tr -s ' ') && echo BIT-EXACT
 
 # the browser version (GitHub Pages): web/ + the program + the address of ttlm_state
-web: gigatron/ttlm.gt1 docs/img/xray.png
+web: gigatron/ttlm.gt1
 	cp gigatron/ttlm.gt1 web/ttlm.gt1
-	cp docs/img/xray.png web/xray.png
 	python3 -c "import re,json,sys; sys.path.insert(0,'tools'); from brainmap import brainmap; m=re.search(r'([0-9a-f]{4})-[0-9a-f]{4} \\(1 byte\\)\\s+BSS\\s+ttlm_state\\b', open('gigatron/build_v4.frags').read()); json.dump({'state': int(m.group(1), 16), 'brain': brainmap('gigatron/build_v4.frags')}, open('web/ttlm.json', 'w'), separators=(',', ':'))"
 	python3 -c "import json; d=json.load(open('web/ttlm.json')); print('state', hex(d['state']), 'brain', len(d['brain']['kind']))"
 
