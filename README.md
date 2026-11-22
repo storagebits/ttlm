@@ -116,6 +116,13 @@ computation then exists as:
 All three produce **bit-identical logits**. `make test` checks the C version
 running on a Gigatron simulator against the Python reference.
 
+### A coin for close calls
+
+The Gigatron and the Python reference compute the same logits, bit for bit. To pick the
+next word, the reference always takes the best one. The Gigatron does too, except when
+the two best words are nearly tied: then it flips a coin, using the ROM's entropy byte,
+which is stirred every frame. So the moth does not always give the same answer.
+
 ### The model is on the screen
 
 <p align="center"><img src="docs/img/answer.png" width="400" alt="Screen layout"> <img src="docs/img/thinking.png" width="400" alt="Thinking"></p>

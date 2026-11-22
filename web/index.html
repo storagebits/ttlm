@@ -21,6 +21,7 @@
   header img { width: 64px; image-rendering: pixelated; }
   h1 { font-size: 40px; margin: 4px 0 0; color: var(--moth); letter-spacing: 4px; }
   header p { margin: 2px 0 0; color: var(--dim); }
+  header p.full { color: var(--text); font-weight: bold; margin-bottom: 6px; }
   .machine { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
   .screen { position: relative; }
   canvas { display: block; width: 100%; aspect-ratio: 4 / 3; image-rendering: pixelated; background: #000; border-radius: 4px; }
@@ -62,6 +63,7 @@
   <header>
     <img src="moth.png" alt="">
     <h1>TTLM</h1>
+    <p class="full">Transistor-Transistor Language Model</p>
     <p>A language model running on a computer with no CPU.</p>
   </header>
 
@@ -149,6 +151,6 @@
     TTLM by <a href="https://github.com/storagebits">storagebits</a>
   </footer>
 </main>
-<script type="module" src="ttlm.js?v=4"></script>
+<script type="module" src="ttlm.js?v=5"></script>
 </body>
 </html>

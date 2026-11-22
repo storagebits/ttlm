@@ -151,6 +151,10 @@ static void type_demo(const char *s)
   console_print("\n", 1);
 }
 
+/* A close call between the two best words is settled by a coin toss (the ROM's
+ * entropy byte, stirred every frame), so the moth does not always say the same thing. */
+#define MARGIN 48
+
 static void answer(void)
 {
   int n = tokenize(line), i, t;
@@ -165,7 +169,9 @@ static void answer(void)
   }
   while (console_state.cx > 2) console_print("\b \b", 3);
   console_state.fgbg = C_MOTH;
-  while (t != TOK_E && t_pos < CTX) {
+  for (;;) {
+    if (top_val[0] - top_val[1] <= MARGIN && ((entropy[0] ^ frameCount) & 1)) t = top_tok[1];
+    if (t == TOK_E || t_pos >= CTX) break;
     say(vword(t));
     t = step(t, 1);
   }
