@@ -15,7 +15,7 @@
 #define XB ((int *)0x4f00)
 #pragma glcc segment(0x4f00, 0x5000, "")
 
-extern int row(unsigned char **pp);
+extern int row(unsigned char **pp) __attribute__((quickcall));
 
 int h[D];              /* residual stream, value = h / 16 */
 int a[MLP];            /* int8 activations, stored as int */

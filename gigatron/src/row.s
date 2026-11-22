@@ -21,11 +21,16 @@ def scope():
         LDI(XPAGE);ST(T1+1)                # T1 = XPAGE:00
         LD(T3);_BEQ('.done')
         label('.loop')
-        LDW(T2);PEEK();ST(T1);INC(T2)      # T1 low = index byte
-        LDW(T1);DEEK();ADDW(T0);STW(T0)    # acc += x[b]
-        LD(T3);SUBI(1);ST(T3);_BNE('.loop')
+        if args.cpu >= 7:
+            PEEKV(T2);ST(T1);INC(T2)
+            DEEKV(T1);ADDV(T0)
+            DBNE(T3,'.loop')
+        else:
+            LDW(T2);PEEK();ST(T1);INC(T2)      # T1 low = index byte
+            LDW(T1);DEEK();ADDW(T0);STW(T0)    # acc += x[b]
+            LD(T3);SUBI(1);ST(T3);_BNE('.loop')
         label('.done')
-        LDW(T2);DOKE(R8)                   # *pp = p
+        LDW(T2);DOKE(R8)                       # *pp = p
         LDW(T0);RET()
 
     return [('EXPORT', 'row'),
